@@ -1,5 +1,6 @@
 # Byte-compiled files
 *.py[cod]
-*.png
 *.gif
-*.jpg
+img2
+# Editor files
+*.vim
