@@ -1,6 +1,12 @@
 # Byte-compiled files
 *.py[cod]
 *.gif
-img2
+img2/**
+!img2/virus_1.png
+!img2/virus_2.png
+!img2/virus_3.png
+!img2/virus_4.png
+!img2/email.png
+!img/matrix.png
 # Editor files
 *.vim

@@ -4,91 +4,155 @@
 import os.path
 import sys
 
+from copy import copy
 from math import ceil
 from random import randint
 
 import pygame
 
+IMG_PATH="img2"
+
+def irnd(n):
+    """Rounds `n' and returns an integer."""
+    return int(round(n))
+
+def load_image(path):
+    """Loads an image and returns a pygame.Surface."""
+    img = pygame.image.load(path)
+    img = img.convert_alpha()
+    return img
+
+class Animation(object):
+    def __init__(self, imgs, ticks):
+        """
+        Inititalizes the Animation instance. Arguments:
+        imgs  = list of `pygame.Surface`s of the frames. Need to be same
+                size
+        ticks = How often a frame gets rendered before switching to the
+                next image
+        """
+        self.imgs = imgs
+        self.img = 0
+        self.ticks = ticks
+        self.tick = self.ticks
+
+    def render(self, surface, *args):
+        """Renders the image onto `surface`."""
+        surface.blit(self.imgs[self.img], *args)
+        self.tick -= 1
+        if self.tick == 0:
+            print self.img
+            self.img = (self.img + 1) % len(self.imgs)
+            self.tick = self.ticks
+
+    def get_rect(self):
+        return self.imgs[0].get_rect()
+
+class Image(object):
+    def __init__(self, img):
+        """Initializes the Image instance with `img`."""
+        self.img = img
+
+    def render(self, surface, *args):
+        """
+        Renders the Image onto `surface`.
+        """
+        surface.blit(self.img, *args)
+
+    def get_rect(self):
+        """Return pygame.Rect of the Image."""
+        return self.img.get_rect()
+
+
 class Entity(object):
-    def __init__(self, x, y, street, game_speed):
+    def __init__(self, bounds, game_speed):
         """
         Initializes the Entity instance. Arguments:
-        x          = The initial x coordinate of the Entity
-        y          = The initial y coordinate of the Entity
-        street     = pygame.Rect of the Street
-        game_speed = Speed of the street
+        bounds     = pygame.Rect of the bounds to move in
+        game_speed = Game speed
         """
-        self.x = x
-        self.y = y
-        self.street = street
+        self.bounds = bounds
         self.game_speed = game_speed
+
+    def _up(self, amount):
+        """Moves the Entity up."""
+        if self.bounds.top > self.hitbox.top - amount:
+            self.hitbox.y = 0
+        else:
+            self.hitbox.move_ip(0, -amount)
+
+    def _down(self, amount):
+        """Moves the Entity down."""
+        if self.bounds.bottom < self.hitbox.bottom + amount:
+            self.hitbox.y = self.bounds.bottom
+        else:
+            self.hitbox.move_ip(0, amount)
+
+    def _left(self, amount):
+        """Moves the Entity left."""
+        if self.bounds.left > self.hitbox.left - amount:
+            self.hitbox.x = 0
+        else:
+            self.hitbox.move_ip(-amount, 0)
+
+    def _right(self, amount):
+        """Moves the Entity right."""
+        if self.bounds.right < self.hitbox.right + amount:
+            self.hitbox.x = self.bounds.right
+        else:
+            self.hitbox.move_ip(amount, 0)
 
 class Player(Entity):
 
-    def __init__(self, *args):
+    def __init__(self, img, *args):
         """
         Initializes the Player instance. Arguments:
-        x          = The initial x coordinate of the Player
-        y          = The initial y coordinate of the Player
-        street     = pygame.Rect of the Street
+        img        = pygame.Surface of the Player
+        bounds     = pygame.Rect of the bounds to move in
         game_speed = Speed of the street
         """
         super(Player, self).__init__(*args)
+        self.img = img
+        self.hitbox = self.img.get_rect()
+        self.speed = self.bounds.height / 20
 
     def up(self):
         """Moves the Player up."""
-        if self.hitbox.top > self.street.top:
-            self.hitbox = self.hitbox.move(0, -self.street.height / 30)
+        super(Player, self)._up(self.speed)
 
     def down(self):
         """Moves the Player down."""
-        if self.hitbox.bottom < self.street.bottom:
-            self.hitbox = self.hitbox.move(0, self.street.height / 30)
+        self._down(self.speed)
 
     def accelerate(self):
         """Accelerates the Player."""
-        if self.hitbox.right < self.street.right:
-            print "ACC"
-            self.hitbox = self.hitbox.move(self.street.width / 120, 0)
-        else:
-            print self.hitbox.right, self.street.right
+        self._right(self.speed)
 
     def decelerate(self):
         """Decelerates the Player."""
-        if self.hitbox.left > self.street.left:
-            print "DEC"
-            self.hitbox = self.hitbox.move(-self.street.width / 120, 0)
-
-    def set_img(self, img):
-        """
-        Sets the image (and hitbox) of the Player. Argument:
-        img = pygame.Surface containing the image for the Enity.
-        """
-        self.img = img
-        self.hitbox = self.img.get_rect().move(self.x, self.y)
+        self._left(self.speed)
 
     def render(self, surface):
         """Blits the Player on `surface`."""
         surface.blit(self.img, self.hitbox)
 
-class Deer(Entity):
-    def __init__(self, move_type, *args):
+class Enemy(Entity):
+    def __init__(self, move_type, img, *args):
         """
-        Initializes the Deer instance. Arguments:
-        move_type
-        x          = The initial x coordinate of the Deer
-        y          = The initial y coordinate of the Deer
-        street     = pygame.Rect of the Street
+        Initializes the Enemy instance. Arguments:
+        move_type  = Movement type of the Enemy. See Enemy.move
+        img        = pygame.Surface of the Enemy
+        bounds     = pygame.Rect of the bounds to move in
         game_speed = Speed of the street
         """
+        super(Enemy, self).__init__(*args)
         self.move_type = move_type
-        super(Deer, self).__init__(*args)
-        print "DEER CREATED"
-        self.img = 0
+        self.img = img
+        self.hitbox = img.get_rect()
 
     def move(self):
         """
-        Moves the Deer according to its move_type. The movements are:
+        Moves the Enemy according to its move_type. The movements are:
         0 = Moves to the left at Game.speed
         1 = Moves to the left at half Game.speed
         2 = Walks to the left and up
@@ -99,95 +163,104 @@ class Deer(Entity):
         """
         if self.move_type == 0:
             self.hitbox = self.hitbox.move(-self.game_speed, 0)
-            print "MOVED %s" % self.hitbox
-
-    def set_imgs(self, imgs):
-        """
-        Sets the image (and hitbox) of the Deer. Argument:
-        imgs = List of `pygame.Surface`s containing the image
-               for the Enity.
-        """
-        self.imgs = imgs
-        self.hitbox = self.imgs[0].get_rect().move(self.x, self.y)
-
-    def next_img(self):
-        self.img += 1
-        self.img %= len(self.imgs)
 
     def render(self, surface):
-        """Blits the Deer on `surface`."""
-        surface.blit(self.imgs[self.img], self.hitbox)
+        """Blits the Enemy on `surface`."""
+        surface.blit(self.img, self.hitbox)
 
 class Game(object):
-    def __init__(self, width=1200, height=400):
+    def __init__(self, width=1200, height=800, player="email.png", virus=(
+                 "virus_{}.png", (1, 2, 3, 4)), street="matrix.png"):
         """
         Initializes the Game instance. Arguments:
         width      = window width
         height     = window height
+        player     = name of image file for player
+        virus      = name(s) of image files in format (fmt, (numbers))
+        street     = name of image file for street (matrix)
         """
         # Initialisierung
         self.width = width
         self.height = height
 
+        self.bounds = pygame.Rect(0, 0, self.width, self.height)
+
         pygame.init()
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Passée")
+        pygame.display.set_caption("E-Mail")
         pygame.mouse.set_visible(1)
+
+        self.player_img = load_image(os.path.join(IMG_PATH, player))
+        scale = self.player_img.get_height() * 10.0 / self.height
+        self.player_img = pygame.transform.scale(
+                self.player_img, (irnd(self.player_img.get_width() / scale),
+                irnd(self.player_img.get_height() / scale))
+        )
+        self.virus_img = [load_image(os.path.join(IMG_PATH, virus[0].format(i)))
+                      for i in virus[1]]
+        self.virus_img = [
+            pygame.transform.scale(i, (irnd(i.get_width() / (i.get_height() *
+                5.0 / self.height)), irnd(i.get_height() / (i.get_height() *
+                5.0 / self.height)))) for i in self.virus_img
+        ]
+        print(self.virus_img)
+        self.street_img = load_image(os.path.join(IMG_PATH, street))
 
         self.speed = 10
 
-        self.player = Player(0, self.height//2, self.screen.get_rect(),
-                             self.speed)
+        self.player = Player(self.player_img, self.bounds, self.speed)
 
-        self.deer = []
-        self.next_deer = 30
-        self.next_deer_max = 90
-        self.next_deer_min = 70
+        self.enemies = []
+        self.next_enemy = 60
+        self.next_enemy_max = 90
+        self.next_enemy_min = 70
 
         # Tastendruck wiederholt senden, falls nicht losgelassen
         pygame.key.set_repeat(1, 30)
         self.clock = pygame.time.Clock()
         self.running = False
 
-    def set_street_img(self, path):
-        img = pygame.image.load(path)
-        img = img.convert()
-        self.street_img = img
+    #def set_street_img(self, path):
+        #img = pygame.image.load(path)
+        #img = img.convert()
+        #self.street_img = img
 
-        self.scaled_street = self.scale_street_img()
+        #self.scaled_street = self.scale_street_img()
 
-    def scale_street_img(self):
-        width = self.street_img.get_width()
-        height = self.street_img.get_height()
-        scale = height // self.height
-        img = pygame.transform.scale(self.street_img,
-                (width // scale, self.height))
-        return img
+    #def scale_street_img(self):
+        #width = self.street_img.get_width()
+        #height = self.street_img.get_height()
+        #scale = height // self.height
+        #img = pygame.transform.scale(self.street_img,
+                #(width // scale, self.height))
+        #return img
 
-    def get_street_img(self, pos):
+    def get_street_img(self, hpos, vpos):
         surf = pygame.Surface((self.width, self.height))
-        for x in range(-pos, self.width, self.scaled_street.get_width()):
-            surf.blit(self.scaled_street, (x, 0))
+        for x in range(-hpos, self.width, self.street_img.get_width()):
+            for y in range(-vpos, self.height, self.street_img.get_height()):
+                surf.blit(self.street_img, (x, y))
         return surf
 
-    def set_player_img(self, path):
-        img = pygame.image.load(path)
-        img = img.convert_alpha()
-        scale = img.get_height() / (self.height / 5.0)
-        img = pygame.transform.scale(img, (int(round(img.get_width() / scale)),
-            int(round(img.get_height() / scale))))
-        self.player.set_img(img)
+    #def set_player_img(self, path):
+        #img = pygame.image.load(path)
+        #img = img.convert_alpha()
+        #scale = img.get_height() / (self.height / 5.0)
+        #img = pygame.transform.scale(img, (int(round(img.get_width() / scale)),
+            #int(round(img.get_height() / scale))))
+        #self.player.set_img(Image(img))
 
-    def set_deer_img(self, paths):
-        imgs = [pygame.image.load(path).convert_alpha() for path in paths]
-        scale = imgs[0].get_height() / (self.height / 5.0)
-        imgs = [pygame.transform.scale(img, (int(round(img.get_width() / scale)),
-            int(round(img.get_height() / scale)))) for img in imgs]
-        self.deer_imgs = imgs
-        for deer in self.deer:
-            deer.set_imgs(imgs)
+    #def set_deer_img(self, paths):
+        #imgs = [pygame.image.load(path).convert_alpha() for path in paths]
+        #scale = imgs[0].get_height() / (self.height / 5.0)
+        #imgs = [pygame.transform.scale(img, (int(round(img.get_width() / scale)),
+            #int(round(img.get_height() / scale)))) for img in imgs]
+        #self.deer_anim = Animation(imgs, 3)
+        #self.deer_height = self.deer_anim.get_rect().height
+        #for deer in self.deer:
+            #deer.set_img(copy(self.deer_anim))
 
-    def spawn_deer(self):
+    def spawn_enemy(self):
         if randint(0, 1):
             # Laters
             #if self.speed < 20:
@@ -196,12 +269,7 @@ class Game(object):
                 #move_type = randint(0, 4)
             #else:
                 #move_type = randint(0, 7)
-            self.deer.append(Deer(
-                0, self.width, randint(0,
-                    self.height - self.deer_imgs[0].get_height()
-                ), self.scaled_street.get_rect(), self.speed
-            ))
-            self.deer[-1].set_imgs(self.deer_imgs)
+            self.enemies.append(Enemy(0, self.virus_img[0], self.bounds, self.speed))
 
     def run(self):
         self.running = True
@@ -231,40 +299,38 @@ class Game(object):
                 sys.exit()
 
             if tick % 90 == 0:
-                if self.next_deer_max > 30:
-                    self.next_deer_max -= 1
-                if self.next_deer_min > 15:
-                    self.next_deer_min -= 1
+                if self.next_enemy_max > 30:
+                    self.next_enemy_max -= 1
+                if self.next_enemy_min > 15:
+                    self.next_enemy_min -= 1
             if tick % 75 == 0 and self.speed < 50:
                 self.speed += 1
-                for deer in self.deer:
-                    deer.game_speed = self.speed
+                for enemy in self.enemies:
+                    enemy.game_speed = self.speed
                 self.player.game_speed = self.speed
 
-            if self.next_deer == 0:
-                self.spawn_deer()
-                self.next_deer = randint(self.next_deer_min, self.next_deer_max)
+            if self.next_enemy == 0:
+                self.spawn_enemy()
+                self.next_enemy = randint(self.next_enemy_min, self.next_enemy_max)
             else:
-                self.next_deer -= 1
- 
-            for deer in self.deer:
-                deer.move()
+                self.next_enemy -= 1
+
+            for enemy in self.enemies:
+                enemy.move
 
             pos += self.speed
-            pos %= self.scaled_street.get_width()
-            self.screen.blit(self.get_street_img(pos), (0, 0))
+            pos %= self.street_img.get_height()
+            self.screen.blit(self.get_street_img(0, pos), (0, 0))
 
             self.player.render(self.screen)
 
-            for deer in self.deer:
-                deer.render(self.screen)
+            for enemy in self.enemies:
+                enemy.render(self.screen)
+            #for deer in self.deer:
+                #deer.render(self.screen)
 
             pygame.display.flip()
 
 if __name__ == "__main__":
     game = Game()
-    game.set_street_img(os.path.join("img", "rue_n_clip.png"))
-    game.set_player_img(os.path.join("img", "voiture_r2.png"))
-    game.set_deer_img([os.path.join("img", "chevreuil_m_gif%i.png" % i)
-        for i in [1, 2, 3, 2]])
     game.run()
