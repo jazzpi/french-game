@@ -3,14 +3,17 @@
 
 import os.path
 import sys
+import webbrowser
 
 from copy import copy
 from math import ceil
 from random import randint
 
+import pixelperfect
 import pygame
 
-IMG_PATH="img2"
+IMG_PATH = "img2"
+EV_OOB = pygame.USEREVENT + 1
 
 def irnd(n):
     """Rounds `n' and returns an integer."""
@@ -76,31 +79,31 @@ class Entity(object):
 
     def _up(self, amount):
         """Moves the Entity up."""
-        if self.bounds.top > self.hitbox.top - amount:
-            self.hitbox.y = 0
+        if self.bounds.top > self.rect.top - amount:
+            self.rect.y = 0
         else:
-            self.hitbox.move_ip(0, -amount)
+            self.rect.move_ip(0, -amount)
 
     def _down(self, amount):
         """Moves the Entity down."""
-        if self.bounds.bottom < self.hitbox.bottom + amount:
-            self.hitbox.y = self.bounds.bottom
+        if self.bounds.bottom < self.rect.bottom + amount:
+            self.rect.y = self.bounds.bottom
         else:
-            self.hitbox.move_ip(0, amount)
+            self.rect.move_ip(0, amount)
 
     def _left(self, amount):
         """Moves the Entity left."""
-        if self.bounds.left > self.hitbox.left - amount:
-            self.hitbox.x = 0
+        if self.bounds.left > self.rect.left - amount:
+            self.rect.x = 0
         else:
-            self.hitbox.move_ip(-amount, 0)
+            self.rect.move_ip(-amount, 0)
 
     def _right(self, amount):
         """Moves the Entity right."""
-        if self.bounds.right < self.hitbox.right + amount:
-            self.hitbox.x = self.bounds.right
+        if self.bounds.right < self.rect.right + amount:
+            self.rect.x = self.bounds.right
         else:
-            self.hitbox.move_ip(amount, 0)
+            self.rect.move_ip(amount, 0)
 
 class Player(Entity):
 
@@ -113,8 +116,9 @@ class Player(Entity):
         """
         super(Player, self).__init__(*args)
         self.img = img
-        self.hitbox = self.img.get_rect()
-        self.speed = self.bounds.height / 20
+        self.rect = self.img.get_rect()
+        self.hitmask = pixelperfect.get_alpha_hitmask(self.img, self.rect)
+        self.speed = self.bounds.height / 40
 
     def up(self):
         """Moves the Player up."""
@@ -134,7 +138,7 @@ class Player(Entity):
 
     def render(self, surface):
         """Blits the Player on `surface`."""
-        surface.blit(self.img, self.hitbox)
+        surface.blit(self.img, self.rect)
 
 class Enemy(Entity):
     def __init__(self, move_type, img, *args):
@@ -148,7 +152,20 @@ class Enemy(Entity):
         super(Enemy, self).__init__(*args)
         self.move_type = move_type
         self.img = img
-        self.hitbox = img.get_rect()
+        self.rect = img.get_rect()
+        self.hitmask = pixelperfect.get_alpha_hitmask(self.img, self.rect)
+
+        if move_type < 2:
+            x = self.bounds.right
+            y = randint(self.bounds.top, self.bounds.bottom)
+        elif move_type < 4:
+            x = randint(self.bounds.right / 2, self.bounds.right)
+            if move_type == 2: y = self.bounds.bottom
+            else: y = self.bounds.top
+        else:
+            print "MOVE_TYPE > 3"
+
+        self.rect.move_ip(x, y)
 
     def move(self):
         """
@@ -157,20 +174,37 @@ class Enemy(Entity):
         1 = Moves to the left at half Game.speed
         2 = Walks to the left and up
         3 = Walks to the left and down
-        4 = Like 2, but aims for player's car at spawn time
-        5 = Like 3, but aims for player's car at spawn time
-        ...
+        
+        6 = moves up
+        7 = moves down
+        8 = moves up to the player
+        9 = moves down to the player
+        10 = moves left and meanwhile up and down
+        11 = moves left and meanwhile down and up
         """
         if self.move_type == 0:
-            self.hitbox = self.hitbox.move(-self.game_speed, 0)
+            self.rect.move_ip(-self.game_speed, 0)
+        elif self.move_type == 1:
+            self.rect.move_ip(-self.game_speed / 2, 0)
+        elif self.move_type == 2:
+            self.rect.move_ip(-self.game_speed, -self.game_speed)
+        elif self.move_type == 3:
+            self.rect.move_ip(-self.game_speed, self.game_speed)
+        else:
+            print "MOVE_TYPE > 3"
+        if not self.rect.colliderect(self.bounds):
+            pygame.event.post(pygame.event.Event(
+                EV_OOB, instance=self
+            ))
 
     def render(self, surface):
         """Blits the Enemy on `surface`."""
-        surface.blit(self.img, self.hitbox)
+        surface.blit(self.img, self.rect)
 
 class Game(object):
     def __init__(self, width=1200, height=800, player="email.png", virus=(
-                 "virus_{}.png", (1, 2, 3, 4)), street="matrix.png"):
+                 "virus_{}.png", (1, 2, 3, 4)), street="matrix.png",
+                 game_over="game_over.png"):
         """
         Initializes the Game instance. Arguments:
         width      = window width
@@ -190,6 +224,8 @@ class Game(object):
         pygame.display.set_caption("E-Mail")
         pygame.mouse.set_visible(1)
 
+        pygame.font.init()
+
         self.player_img = load_image(os.path.join(IMG_PATH, player))
         scale = self.player_img.get_height() * 10.0 / self.height
         self.player_img = pygame.transform.scale(
@@ -206,19 +242,28 @@ class Game(object):
         print(self.virus_img)
         self.street_img = load_image(os.path.join(IMG_PATH, street))
 
+        self.game_over_img = load_image(os.path.join(IMG_PATH, game_over))
+        self.game_over_img = pygame.transform.scale(
+                self.game_over_img, (self.width, self.height)
+        )
+
         self.speed = 10
 
         self.player = Player(self.player_img, self.bounds, self.speed)
 
         self.enemies = []
         self.next_enemy = 60
-        self.next_enemy_max = 90
-        self.next_enemy_min = 70
+        self.next_enemy_max = 60
+        self.next_enemy_min = 30
 
         # Tastendruck wiederholt senden, falls nicht losgelassen
         pygame.key.set_repeat(1, 30)
         self.clock = pygame.time.Clock()
         self.running = False
+
+        self.score = 0
+        self.score_font = pygame.font.match_font("couriernew", bold=True)
+        self.score_font = pygame.font.Font(self.score_font, 70)
 
     #def set_street_img(self, path):
         #img = pygame.image.load(path)
@@ -269,7 +314,8 @@ class Game(object):
                 #move_type = randint(0, 4)
             #else:
                 #move_type = randint(0, 7)
-            self.enemies.append(Enemy(0, self.virus_img[0], self.bounds, self.speed))
+            i = randint(0, 3)
+            self.enemies.append(Enemy(i, self.virus_img[i], self.bounds, self.speed))
 
     def run(self):
         self.running = True
@@ -282,6 +328,9 @@ class Game(object):
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     sys.exit()
+                elif ev.type == EV_OOB:
+                    self.enemies.remove(ev.dict["instance"])
+                    self.score += 10
 
             keys = pygame.key.get_pressed()
 
@@ -298,12 +347,18 @@ class Game(object):
             if keys[pygame.K_ESCAPE]:
                 sys.exit()
 
-            if tick % 90 == 0:
+            for enemy in self.enemies:
+                enemy.move()
+                if pixelperfect.check_collision(self.player, enemy):
+                    print "GAME OVER"
+                    self.running = False
+
+            if tick % 30 == 0:
                 if self.next_enemy_max > 30:
                     self.next_enemy_max -= 1
                 if self.next_enemy_min > 15:
                     self.next_enemy_min -= 1
-            if tick % 75 == 0 and self.speed < 50:
+            if tick % 75 == 0 and self.speed < 35:
                 self.speed += 1
                 for enemy in self.enemies:
                     enemy.game_speed = self.speed
@@ -322,6 +377,10 @@ class Game(object):
             pos %= self.street_img.get_height()
             self.screen.blit(self.get_street_img(0, pos), (0, 0))
 
+            score = self.score_font.render("Points: {}".format(self.score),
+                                           True, (255, 255, 255))
+            self.screen.blit(score, (0, 0))
+
             self.player.render(self.screen)
 
             for enemy in self.enemies:
@@ -329,6 +388,28 @@ class Game(object):
             #for deer in self.deer:
                 #deer.render(self.screen)
 
+            pygame.display.flip()
+
+        self.game_over()
+
+    def game_over(self):
+        """Displays the Game over screen."""
+        print self.score
+        while True:
+            self.clock.tick(30)
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    sys.exit()
+                if ev.type == pygame.MOUSEBUTTONDOWN:
+                    webbrowser.open_new_tab("http://goo.gl/yuXawT")
+            
+            if pygame.key.get_pressed()[pygame.K_ESCAPE]:
+                sys.exit()
+
+            self.screen.blit(self.game_over_img, (0, 0))
+            score = self.score_font.render("Points: {}".format(self.score),
+                                           True, (255, 255, 255))
+            self.screen.blit(score, (0, 0))
             pygame.display.flip()
 
 if __name__ == "__main__":
